@@ -1,0 +1,10 @@
+
+.share-wrapper .addthis_counter_facebook,
+.share-wrapper .addthis_counter_twitter {
+  display: inline-block;
+  border-left: 1px solid #E7E7EF;
+  float: left;
+  position: relative;
+  height: 36px;
+  padding: 0;
+}
