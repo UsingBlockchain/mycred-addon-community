@@ -12,9 +12,13 @@ define( 'myCRED_COM_DIR',          dirname(myCRED_COM) . '/' );
 define( 'myCRED_COM_ASSETS_DIR',   myCRED_COM_DIR . 'assets/' );
 define( 'myCRED_COM_INCLUDES_DIR', myCRED_COM_DIR . 'includes/' );
 define( 'myCRED_COM_HOOKS_DIR', myCRED_COM_INCLUDES_DIR . 'hooks/' );
+define( 'myCRED_COM_HANDLERS_DIR', myCRED_COM_INCLUDES_DIR . 'handlers/' );
 
 require_once myCRED_COM_INCLUDES_DIR . 'mycred-community-functions.php';
 require_once myCRED_COM_HOOKS_DIR . 'mycred-community-hook-social-share.php';
+
+// include all handlers
+require_once myCRED_COM_HANDLERS_DIR . 'mycred-community-handler-share.php';
 
 /**
  * myCRED_Community_Module class
@@ -37,9 +41,6 @@ if ( ! class_exists( 'myCRED_Community_Module' ) ) :
 				'screen_id'   => 'myCRED_page_community',
 				'defaults'    => array(
 					'template'  => '<p>%entry%</p><h1>%cred_f%</h1>',
-					'post_types'  => 'post,page',
-					'filters'     => array(),
-					'type'        => array( MYCRED_DEFAULT_TYPE_KEY ),
 				),
 				'register'    => false,
 				'add_to_core' => true
@@ -61,13 +62,13 @@ if ( ! class_exists( 'myCRED_Community_Module' ) ) :
 			if ( ! is_user_logged_in() ) return;
 
 			$this->current_user_id = get_current_user_id();
-			$this->priority        = apply_filters( 'mycred_sell_content_priority', 25, $this );
+			$this->priority        = apply_filters( 'mycred_community_priority', 25, $this );
 
 			// Setup Content Override
 			add_action( 'template_redirect',    array( $this, 'template_redirect' ), 99990 );
 
+			// Setup frontend assets
 			add_action( 'mycred_front_enqueue', array( $this, 'register_assets' ), 20 );
-			add_action( 'wp_footer',            array( $this, 'setup_social_shares' ), 1 );
 
 		}
 
@@ -75,14 +76,13 @@ if ( ! class_exists( 'myCRED_Community_Module' ) ) :
 		 * Setup Content Filter
 		 * We are using the template_redirect action to prevent this add-on having to run anywhere else but
 		 * in the front-end of our website, since the the_content filter is used in soooo many places.
-		 * As of 1.7.6, purchases are made via front-end submissions and not via admin-ajax.php
 		 * @since 1.7
 		 * @version 1.0.1
 		 */
 		public function template_redirect() {
 
 			// Handle share requests
-			$this->maybe_share_content();
+			myCRED_Community_Handler_Share::maybe_share_content();
 
 		}
 
@@ -125,98 +125,6 @@ if ( ! class_exists( 'myCRED_Community_Module' ) ) :
 			);
 
 			wp_enqueue_style( 'mycred-community' );
-
-		}
-
-		/**
-		 * Maybe Share Content
-		 * Check if a share request has been made via an AJAX submission.
-		 * @since 1.7.6
-		 * @version 1.0
-		 */
-		public function maybe_share_content() {
-
-			if ( is_user_logged_in() && ! mycred_is_admin() ) {
-
-				if ( isset( $_POST['action'] ) && $_POST['action'] == 'mycred-community-social-share' && isset( $_POST['postid'] ) && isset( $_POST['token'] ) && wp_verify_nonce( $_POST['token'], 'mycred-community-social-share' ) ) {
-
-					$post_id    = absint( $_POST['postid'] );
-					$platform   = sanitize_key( $_POST['platform'] );
-
-					if ( mycred_force_singular_session( $this->current_user_id, 'mycred-last-content-share' ) )
-						wp_send_json( 'ERROR' );
-
-					// If the content is for share and we have not shared it
-					if ( mycred_post_is_shareable( $post_id ) && ! mycred_user_shared_content( $this->current_user_id, $post_id ) ) {
-
-						$content  = '';
-						$post     = mycred_get_post( $post_id );
-						$share = mycred_community_new_social_share( $post, $this->current_user_id, $platform );
-
-						// Successfull share
-						if ( $share === true ) {
-
-							// preg_match('/\[mycred_sell_this[^\]]*](.*)\[\/mycred_sell_this[^\]]*]/uis', $post->post_content , $match );
-
-							// $content = $post->post_content;
-							// if ( is_array( $match ) && array_key_exists( 1, $match ) )
-							// 	$content = $match[1];
-
-							// do_action( 'mycred_sell_before_content_render' );
-
-							// remove_filter( 'the_content', array( $this, 'the_content' ), $this->priority );
-							// $content = apply_filters( 'the_content', $content );
-							// $content = str_replace( ']]>', ']]&gt;', $content );
-							// $content = do_shortcode( $content );
-							// add_filter( 'the_content', array( $this, 'the_content' ), $this->priority );
-
-							$content = 'SUCCESS';
-
-						}
-
-						// Something went wrong
-						else {
-
-							$content = $share;
-
-						}
-
-						// Let others play
-						$content = apply_filters( 'mycred_community_social_share_ajax', $content, $share );
-
-						if ( $share !== true )
-							wp_send_json_error( $content );
-						else
-							wp_send_json_success( $content );
-
-					}
-
-					wp_send_json( 'ERROR' );
-
-				}
-
-			}
-
-		}
-
-		/**
-		 * Setup social shares
-		 * @since 0.1
-		 * @version 0.1
-		 */
-		public function setup_social_shares() {
-
-			$user_id = get_current_user_id();
-			$data    = get_transient( 'mycred_community_social_share_' . $user_id );
-
-			if ( $data === false || ! is_array( $data ) ) return;
-
-			foreach ( $data as $share )
-
-        add_filter( 'mycred_community_social_share', function ($query) use ($share){ $query[]= $share ; return $query; }  );
-
-
-      delete_transient( 'mycred_community_social_share_' . $user_id );
 
 		}
 
@@ -274,8 +182,8 @@ jQuery(function($) {
 		 */
 		public function sanitize_extra_settings( $new_data, $data, $general ) {
 
-			$new_data['notifications']['use_css']  = ( isset( $data['notifications']['use_css'] ) ) ? 1: 0;
-			$new_data['notifications']['template'] = wp_kses( $data['notifications']['template'], $this->core->allowed_html_tags() );
+			$new_data['community']['use_css']  = ( isset( $data['community']['use_css'] ) ) ? 1: 0;
+			$new_data['community']['template'] = wp_kses( $data['community']['template'], $this->core->allowed_html_tags() );
 
 			return $new_data;
 
